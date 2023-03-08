@@ -1,10 +1,12 @@
-from conans import ConanFile, AutoToolsBuildEnvironment
+from conan import ConanFile
+from conan.tools.gnu import Autotools
+from conan.tools.scm import Git
 
 
 class Liburing(ConanFile):
 
     name = "liburing"
-    version = "0.6"
+    version = "2.3"
     license = "MIT"
     homepage = "https://github.com/axboe/liburing"
     description = (
@@ -16,29 +18,48 @@ class Liburing(ConanFile):
     author = "magras"
     url = "https://github.com/magras/conan-liburing"
 
-    generators = "pkg_config"
     settings = "os", "compiler", "build_type", "arch"
-    scm = {
-        "type": "git",
-        "url": "{}.git".format(homepage),
-        "revision": "liburing-{}".format(version)
-    }
+    generators = "AutotoolsToolchain"
 
-    _autotools = None
+    def source(self):
+        git = Git(self)
+        git.clone(
+            f"{self.homepage}.git",
+            target=".",
+            args=["--depth=1", f"--branch=liburing-{self.version}"]
+        )
 
-    def _configure_autotools(self):
-        if not self._autotools:
-            self._autotools = AutoToolsBuildEnvironment(self)
-            self._autotools.configure()
-        return self._autotools
+    def layout(self):
+        self.cpp.package.libs = ["uring"]
+
+    def _filter_configure_args(self, autotools):
+        """
+        Remove flags unrecognized by liburing:
+          --bindir --sbindir --oldincludedir
+        """
+
+        def is_known_option(arg):
+            return arg.startswith((
+                "--prefix=",
+                "--includedir=",
+                "--libdir=",
+                "--libdevdir=",
+                "--mandir=",
+                "--datadir=",
+                "--cc=",
+                "--cxx=",
+                "--nolibc"))
+
+        args = map(lambda a: a.strip("'"), autotools._configure_args.split(" "))
+        args = filter(is_known_option, args)
+        autotools._configure_args = " ".join(f"'{a}'" for a in args)
 
     def build(self):
-        autotools = self._configure_autotools()
+        autotools = Autotools(self)
+        self._filter_configure_args(autotools)
+        autotools.configure()
         autotools.make()
 
     def package(self):
-        autotools = self._configure_autotools()
+        autotools = Autotools(self)
         autotools.install()
-
-    def package_info(self):
-        self.cpp_info.libs = ["liburing.so"]
